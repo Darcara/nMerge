@@ -2,7 +2,6 @@
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using Ionic.BZip2;
 
 // ToDo: This should be dynamically read from the input file and substituded before compilation, using AssemblyDefinition.CustomAttributes
 [assembly: AssemblyTitle("nMerge - MergedAssembly")]
@@ -29,13 +28,16 @@ class Wrapper
 		try
 			{
 			AppDomain.CurrentDomain.AssemblyResolve += ResolveEmbeddedAssembly;
-			var execAssembly = Assembly.GetExecutingAssembly();
-			Console.WriteLine("Hello World! This is " + execAssembly);
+			var executingAssembly = Assembly.GetExecutingAssembly();
+			Console.WriteLine("Hello World! This is '" + typeof(Wrapper).FullName + "' in " + executingAssembly);
 
 			var resourceNames = Assembly.GetExecutingAssembly().GetManifestResourceNames();
 			Console.WriteLine("Listing embedded resources(" + resourceNames.Length + "):");
 			foreach(var name in resourceNames)
-				Console.WriteLine("  " + name);
+				{
+				var s = executingAssembly.GetManifestResourceStream(name);
+				Console.WriteLine(String.Format("  {0} = {1} bytes",  name, s.Length));
+				}
 
 			var type = Type.GetType(_type, false);
 			if(type == null)
@@ -63,7 +65,7 @@ class Wrapper
 		finally
 			{
 #if DEBUG
-			Console.ReadKey(false);
+			//Console.ReadKey(false);
 #endif
 			}
 		}
@@ -74,6 +76,10 @@ class Wrapper
 		Console.WriteLine("Resolving assembly ("+assName.Name+"): " + args.Name);
 
 		Assembly executingAssembly = Assembly.GetExecutingAssembly();
+		
+		if(assName.Name == "Ionic.BZip2")
+			return LoadAssemblyFromStream(executingAssembly.GetManifestResourceStream(assName.Name + ".dll"));
+
 		Stream _s = null;
 		_s = executingAssembly.GetManifestResourceStream(assName.Name + ".dll" + ".bz2");
 		if(_s == null)
@@ -81,12 +87,39 @@ class Wrapper
 
 		if(_s == null)
 			{
-			Console.WriteLine("Assembly not found in resources");
+			Console.WriteLine(String.Format("Assembly '{0}' not found in resources", args.Name));
 			return null;
 			}
+#if COMPRESS
+		return LoadAssemblyFromCompressedStream(_s);
+#else
+		return LoadAssemblyFromStream(_s);
+#endif
+		}
 
+	private static Assembly LoadAssemblyFromStream(Stream _s)
+		{
 		byte[] block = null;
-		using(var inStream = new BZip2InputStream(_s))
+		var buf = new byte[1024];
+		using(var outStream = new MemoryStream())
+			{
+			int bytesRead = 0;
+			while((bytesRead = _s.Read(buf, 0, 1024)) > 0)
+				{
+				outStream.Write(buf, 0, bytesRead);
+				}
+			block = outStream.ToArray();
+			}
+
+		Assembly a2 = Assembly.Load(block);
+		return a2;
+		}
+
+#if COMPRESS
+	private static Assembly LoadAssemblyFromCompressedStream(Stream _s)
+		{
+		byte[] block = null;
+		using(var inStream = new Ionic.BZip2.BZip2InputStream(_s))
 			{
 			var buf = new byte[1024];
 			using(var outStream = new MemoryStream())
@@ -103,5 +136,7 @@ class Wrapper
 		Assembly a2 = Assembly.Load(block);
 		return a2;
 		}
+#endif
+
 	}
 // ReSharper restore CheckNamespace

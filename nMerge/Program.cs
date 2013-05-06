@@ -13,38 +13,10 @@ using Omega.App.nMerge.Properties;
 
 namespace Omega.App.nMerge
 	{
-	class Program
+	public class Program
 		{
-		static void Main(string[] args)
+		public static void Main(params string[] args)
 			{
-			//var resourceNames = Assembly.GetExecutingAssembly().GetManifestResourceNames();
-			//System.Diagnostics.Debug.WriteLine("Listing embedded resources(" + resourceNames.Length + "):");
-			//foreach(var name in resourceNames)
-			//  {
-			//  System.Diagnostics.Debug.WriteLine("  " + name);
-
-			//  ResourceManager rm = new ResourceManager(Path.GetFileNameWithoutExtension(name), Assembly.GetExecutingAssembly());
-			//  System.Diagnostics.Debug.WriteLine("  - " + rm.BaseName);
-
-			//  try
-			//    {
-			//    System.Diagnostics.Debug.WriteLine("  - " + rm.GetString("Test1"));
-			//    }
-			//  catch(Exception e)
-			//    {
-			//    System.Diagnostics.Debug.WriteLine("  - " + e.Message);
-			//    }
-
-
-
-			//  }
-
-			//var res1 = Assembly.GetExecutingAssembly().GetManifestResourceStream("Omega.App.nMerge.Wrapper.cs");
-			//var res2 = Assembly.GetExecutingAssembly().GetManifestResourceStream("Omega.App.nMerge.Properties.Resources.resources");
-			//var res3 = Assembly.GetExecutingAssembly().GetManifestResourceStream("Omega.App.nMerge.Properties.Resources.Wrapper");
-
-			//return;
-
 			String outputFile = null;
 			String inputFile = null;
 			String methodRaw = null;
@@ -77,8 +49,6 @@ namespace Omega.App.nMerge
 					throw new Exception("in must be set");
 				if(!File.Exists(inputFile))
 					throw new FileNotFoundException("input file does not exist", inputFile);
-				if(String.IsNullOrWhiteSpace(methodRaw))
-					throw new Exception("m must be set");
 
 				if(Path.GetExtension(inputFile) == ".dll")
 					{
@@ -90,18 +60,21 @@ namespace Omega.App.nMerge
 				else
 					throw new Exception("Unable to recognize type of input file. Must be 'dll' or 'exe'");
 
+				var applicationPath =  Path.GetDirectoryName(inputFile);
+				if(librariesRaw == null && applicationPath != null)
+					librariesRaw = Path.Combine(applicationPath, "*.dll");
+				
 				libraries = ParseLibraries(librariesRaw, inputFile);
 
 				assemblyDef = ReadAssembly(inputFile);
 				method = GetCalleeMethod(methodRaw, assemblyDef);
+
+				if(method == null)
+					throw new Exception("Entry method could not be determined for " + (String.IsNullOrEmpty(methodRaw) ? "<DefaultEntryPoint>" : methodRaw));
 				}
 			catch(Exception e)
 				{
-#if DEBUG
-				System.Diagnostics.Debug.WriteLine("Invalid Command line parameters: " + e.Message);
-				System.Diagnostics.Debug.WriteLine("");
-#endif
-				Console.Error.WriteLine("Invalid Command line parameters: " + e.Message);
+				Console.WriteLine("Invalid Command line parameters: " + e.Message);
 				Console.WriteLine();
 				PrintUsage();
 				Environment.Exit(2);
@@ -111,26 +84,23 @@ namespace Omega.App.nMerge
 
 			try
 				{
-				BuildWrapper(outputFile, inputFile, libraries, method.DeclaringType.FullName + "," + assemblyDef.FullName, method.Name);
+				BuildWrapper(outputFile, inputFile, libraries, method.DeclaringType.FullName + "," + assemblyDef.FullName, method.Name, compress);
 				InjectWrapper();
 				}
 			catch(Exception e)
 				{
-#if DEBUG
-				System.Diagnostics.Debug.WriteLine("Failed to merge assemblies: " + e);
-#endif
-				Console.Error.WriteLine("Failed to merge assemblies: " + e);
+				Console.WriteLine("Failed to merge assemblies: " + e);
 				Environment.Exit(3);
 				}
 
 			Console.WriteLine("All Done!");
 			}
 
-		private static void BuildWrapper(String outputFile, String mainAssembly, List<String> libraries, String mainClassTypeName, String mainMethod)
+		private static void BuildWrapper(String outputFile, String mainAssembly, List<String> libraries, String mainClassTypeName, String mainMethod, Boolean compress)
 			{
 			var resourcesRaw = libraries.ToList();
 			resourcesRaw.Add(mainAssembly);
-			var resourcesLocal = CreateResources("Resources.resources", resourcesRaw);
+			var resourcesLocal = CreateResources("Resources.resources", resourcesRaw, compress);
 			var provider = new CSharpCodeProvider();
 			var compilerparams = new CompilerParameters
 			                     	{
@@ -144,15 +114,24 @@ namespace Omega.App.nMerge
 			compilerparams.ReferencedAssemblies.Add(@"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.0\System.Core.dll");
 			compilerparams.ReferencedAssemblies.Add(@"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.0\System.Xml.dll");
 			compilerparams.ReferencedAssemblies.Add(@"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.0\System.Xml.Linq.dll");
-			compilerparams.ReferencedAssemblies.Add(@"Ionic.BZip2.dll");
+			if(compress)
+				compilerparams.ReferencedAssemblies.Add(@"Ionic.BZip2.dll");
 #if DEBUG
 			compilerparams.CompilerOptions += " /debug /define:DEBUG";
 #endif
 			foreach (var resource in resourcesLocal)
 				compilerparams.EmbeddedResources.Add(resource);
+			
+			if(compress)
+				{
+				compilerparams.EmbeddedResources.Add(@"Ionic.BZip2.dll");
+				compilerparams.CompilerOptions += " /define:COMPRESS";
+				}
 
-
-			CompilerResults results = provider.CompileAssemblyFromSource(compilerparams, Resources.Wrapper.Replace("***TYPE***", mainClassTypeName).Replace("***METHOD***", mainMethod));
+			String code = Resources.Wrapper
+				.Replace("***TYPE***", mainClassTypeName)
+				.Replace("***METHOD***", mainMethod);
+			CompilerResults results = provider.CompileAssemblyFromSource(compilerparams, code);
 			if(results.Errors.HasErrors)
 				{
 				var errors = new StringBuilder("Compiler Errors :\r\n");
@@ -169,13 +148,13 @@ namespace Omega.App.nMerge
 
 			}
 
-		private static IEnumerable<string> CreateResources(String filename, IEnumerable<String> resources, Boolean compress = true)
+		private static IEnumerable<string> CreateResources(String filename, IEnumerable<String> resources, Boolean compress)
 			{
 			var loclaResources = new List<String>();
 			foreach (var resource in resources)
 				{
 				String localFile = Path.GetFileName(resource) + ".bz2";
-				CopyFile(resource, localFile, true);
+				CopyFile(resource, localFile, compress);
 
 				loclaResources.Add(localFile);
 				}
@@ -183,7 +162,7 @@ namespace Omega.App.nMerge
 			return loclaResources;
 			}
 
-		public static void CopyFile(String inFile, String outFile, Boolean compress)
+		private static void CopyFile(String inFile, String outFile, Boolean compress)
 			{
 			using(FileStream inStream = File.OpenRead(inFile))
 			using(FileStream outStream = File.Create(outFile))
@@ -218,14 +197,11 @@ namespace Omega.App.nMerge
 				var searchPattern = Path.GetFileName(libraryFile);
 				var files = Directory.GetFiles(dir ?? "./", searchPattern ?? "*.dll");
 
-				foreach (var file in files.Where(file => file != mainAssembly))
+				foreach (var file in files.Where(file => file != mainAssembly && Path.GetFileName(file) != "Ionic.BZip2.dll"))
 					{
 					if(!File.Exists(file))
 						throw new FileNotFoundException("Library not found", file);
 
-#if DEBUG
-					System.Diagnostics.Debug.WriteLine("Found library " + file);
-#endif
 					Console.WriteLine("Found library " + file);
 					l.Add(file);
 					}
@@ -235,6 +211,14 @@ namespace Omega.App.nMerge
 
 		private static MethodReference GetCalleeMethod(String methodRaw, AssemblyDefinition assemblyDef)
 			{
+			if(String.IsNullOrWhiteSpace(methodRaw))
+				{
+				if(assemblyDef.EntryPoint == null)
+					throw new Exception("No method supplied and target assembly has no entry point.");
+
+				methodRaw = String.Format("{0}::{1}", assemblyDef.EntryPoint.DeclaringType.FullName, assemblyDef.EntryPoint.Name);
+				}
+
 			ModuleDefinition module = assemblyDef.MainModule;
 			if(!methodRaw.Contains("::"))
 				throw new Exception("Invalid format for m(ethod) parameter. Expected: Some.Namespace.Class::MethodName");
@@ -278,31 +262,33 @@ namespace Omega.App.nMerge
 		private static void PrintUsage()
 			{
 			
-			Console.WriteLine(@"
-nmerge.exe /out=<outputFile> /in=<application> /lib=<library>,<library> [/zip] [/m=<method>]
+			Console.WriteLine(@"nmerge.exe /out=<outputFile> /in=<application> [/lib=<library>,<library>] [/zip] [/m=<method>]
 
-/out=<outputFile>		The output file
+/out=<outputFile>   The output file
 
-/in=<application>		The application assembly
+/in=<application>   The application assembly
 
-/m=<method>					The fully qualified method name
-										Method must be public static void(String[] args)
-										Defaults to the entry point for executeables
-										e.g: Some.Namespace.Class::MethodName
+/m=<method>         Optional.
+                    The fully qualified method name
+                    Method must be public static void(String[] args)
+                    Defaults to the entry point for executeables
+                    e.g: Some.Namespace.Program::Main
 
-/lib=<library>			A ','-separated list of assemblies to include
-										Wildcards are permitted
+/lib=<library>      Optional.
+                    A ','-separated list of assemblies to include
+                    Wildcards are permitted
+                    If not specified, all *.dll files in the same directory
+                    as the application are assumed
 
-/zip								Optional.
-										If specified all assemblies will be compressed.
-										This has a slight performance cost, but may drastically
-										reduce filesize.
+/zip                Optional.
+                    If specified all assemblies will be compressed.
+                    This has a slight performance cost, but may drastically
+                    reduce filesize
 
-/?, --help					Prints this helpful screen.
+/?, /h, /help       Prints this helpful screen
 
 Additional information on this website:
-	http://???.com
-");
+	https://github.com/Darcara/nMerge");
 			Environment.Exit(1);
 			}
 		}

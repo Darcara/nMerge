@@ -2,6 +2,7 @@
 bin
 obj
 /lib
+/test/build
 
 # mstest test results
 TestResults
@@ -10,3 +11,4 @@ TestResults
 _*
 *.suo
 *.user
+*.sdf
