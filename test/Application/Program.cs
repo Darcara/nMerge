@@ -46,5 +46,23 @@ namespace Application
 
 			Console.WriteLine(dc.GetTheString() + ":" + dc.GetNumber());
 			}
+
+		public static void SilentEntryPoint(String[] args)
+			{
+			if(args.Length != 3)
+				{
+				Console.WriteLine("Usage: application.exe <Int32> <String> <String>\nGot: " + String.Join(", ", args));
+				return;
+				}
+
+			var dc = new DerivedClass(Int32.Parse(args[0]), args[1]);
+
+			Console.WriteLine(dc.GetStringFromSilentLibrary(args[2]) + ":" + dc.GetNumber());
+			}
+
+		public static void UnusedMethod()
+			{
+			Console.WriteLine("This 'Application.Program::UnusedMethod' should never be displayed.");
+			}
 		}
 	}

@@ -3,13 +3,17 @@ using System.CodeDom.Compiler;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using Ionic.BZip2;
 using Microsoft.CSharp;
 using Mono.Cecil;
+using Mono.Cecil.Cil;
 using Mono.Cecil.Pdb;
 using Omega.App.nMerge.Options;
 using Omega.App.nMerge.Properties;
+using MethodAttributes = Mono.Cecil.MethodAttributes;
+using MethodBody = Mono.Cecil.Cil.MethodBody;
 
 namespace Omega.App.nMerge
 	{
@@ -53,7 +57,6 @@ namespace Omega.App.nMerge
 				if(Path.GetExtension(inputFile) == ".dll")
 					{
 					isExecuteable = false;
-					throw new NotSupportedException("Merging libraries currently not supported");
 					}
 				else if(Path.GetExtension(inputFile) == ".exe")
 					isExecuteable = true;
@@ -65,12 +68,7 @@ namespace Omega.App.nMerge
 					librariesRaw = Path.Combine(applicationPath, "*.dll");
 				
 				libraries = ParseLibraries(librariesRaw, inputFile);
-
 				assemblyDef = ReadAssembly(inputFile);
-				method = GetCalleeMethod(methodRaw, assemblyDef);
-
-				if(method == null)
-					throw new Exception("Entry method could not be determined for " + (String.IsNullOrEmpty(methodRaw) ? "<DefaultEntryPoint>" : methodRaw));
 				}
 			catch(Exception e)
 				{
@@ -84,8 +82,63 @@ namespace Omega.App.nMerge
 
 			try
 				{
-				BuildWrapper(outputFile, inputFile, libraries, method.DeclaringType.FullName + "," + assemblyDef.FullName, method.Name, compress);
-				InjectWrapper();
+				if(isExecuteable)
+					{
+					method = GetCalleeMethod(methodRaw, assemblyDef);
+
+					if(method == null)
+						throw new Exception("Entry method could not be determined for " + (String.IsNullOrEmpty(methodRaw) ? "<DefaultEntryPoint>" : methodRaw));
+
+					BuildWrapper(outputFile, inputFile, libraries, method.DeclaringType.FullName + "," + assemblyDef.FullName, method.Name, compress);
+					InjectWrapper();
+					}
+				else
+					{
+					foreach (var library in libraries)
+						{
+						assemblyDef.MainModule.Resources.Add(new EmbeddedResource(Path.GetFileName(library), ManifestResourceAttributes.Public, File.ReadAllBytes(library)));
+						}
+
+					var unusedMethod = FindMethod("MainLibrary.DerivedClass::UnusedMethod", assemblyDef);
+					var voidRef = assemblyDef.MainModule.Import(unusedMethod.ReturnType);
+					const MethodAttributes attributes = MethodAttributes.Static | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName;
+					var cctor = new MethodDefinition(".cctor", attributes, voidRef);
+					
+					var resolveMethod = CreateResolveMethod(assemblyDef);
+
+					ILProcessor il = cctor.Body.GetILProcessor();
+
+
+					il.Append(il.Create(OpCodes.Call, unusedMethod));
+					il.Append(il.Create(OpCodes.Call, ImportMethod<AppDomain>(assemblyDef, "get_CurrentDomain")));
+					il.Emit(OpCodes.Ldnull);
+					il.Emit(OpCodes.Ldftn, resolveMethod);
+					il.Emit(OpCodes.Newobj, ImportCtor<ResolveEventHandler>(assemblyDef, typeof(object), typeof(IntPtr)));
+					il.Emit(OpCodes.Callvirt, ImportMethod<AppDomain>(assemblyDef, "add_AssemblyResolve"));
+					il.Append(il.Create(OpCodes.Call, unusedMethod));
+					il.Append(il.Create(OpCodes.Ret));
+
+					
+
+
+					TypeDefinition moduleClass = assemblyDef.MainModule.Types.First(t => t.Name == "<Module>");
+					moduleClass.Methods.Add(cctor);
+
+
+					//var myAssembly = AssemblyDefinition.ReadAssembly("nMerge.exe", new ReaderParameters(ReadingMode.Immediate));
+					//var setupMethod = FindMethod("MinimalWrapper::MinimalWrapperMain", myAssembly);
+					//var wrapperType = FindType("MinimalWrapper", myAssembly);
+					//var mDef = new MethodDefinition("Test", MethodAttributes.Public | MethodAttributes.Static, voidRef);
+					//var testil = mDef.Body.GetILProcessor();
+					//var oldinst = setupMethod.Body.Instructions;
+					//assemblyDef.MainModule.Types[1].Methods.Add(mDef);
+
+
+					var moduleType = assemblyDef.MainModule.Types.Single(x => x.Name == "<Module>");
+					moduleType.Methods.Add(resolveMethod);
+					assemblyDef.Write(outputFile);
+					}
+
 				}
 			catch(Exception e)
 				{
@@ -96,9 +149,69 @@ namespace Omega.App.nMerge
 			Console.WriteLine("All Done!");
 			}
 
+		private static TypeReference ImportType<T>(AssemblyDefinition assemblyDef)
+			{
+			return assemblyDef.MainModule.Import(typeof(T));
+			}
+		private static MethodReference ImportMethod<T>(AssemblyDefinition assemblyDef, string methodName)
+			{
+			return assemblyDef.MainModule.Import(typeof(T).GetMethod(methodName));
+			}
+		private static MethodReference ImportMethod<T>(AssemblyDefinition assemblyDef, string methodName, params Type[] types)
+			{
+			return assemblyDef.MainModule.Import(typeof(T).GetMethod(methodName, types));
+			}
+		private static MethodReference ImportCtor<T>(AssemblyDefinition assemblyDef, params Type[] types)
+			{
+			return assemblyDef.MainModule.Import(typeof(T).GetConstructor(types));
+			}
+
+		private static MethodDefinition CreateResolveMethod(AssemblyDefinition assemblyDef)
+			{
+			var method = new MethodDefinition("OnAssemblyResolve", MethodAttributes.Private | MethodAttributes.HideBySig | MethodAttributes.Static, ImportType<Assembly>(assemblyDef));
+			method.Parameters.Add(new ParameterDefinition(ImportType<object>(assemblyDef)));
+			method.Parameters.Add(new ParameterDefinition(ImportType<ResolveEventArgs>(assemblyDef)));
+			method.Body.Variables.Add(new VariableDefinition(ImportType<Assembly>(assemblyDef)));
+			method.Body.Variables.Add(new VariableDefinition(ImportType<string>(assemblyDef)));
+			method.Body.Variables.Add(new VariableDefinition(ImportType<Stream>(assemblyDef)));
+			method.Body.Variables.Add(new VariableDefinition(ImportType<byte[]>(assemblyDef)));
+			method.Body.InitLocals = true;
+
+			var il = method.Body.GetILProcessor();
+			il.Emit(OpCodes.Call, ImportMethod<Assembly>(assemblyDef, "GetExecutingAssembly"));
+			il.Emit(OpCodes.Ldarg_1);
+			il.Emit(OpCodes.Callvirt, ImportMethod<ResolveEventArgs>(assemblyDef, "get_Name"));
+			il.Emit(OpCodes.Newobj, ImportCtor<AssemblyName>(assemblyDef, typeof(String)));
+			il.Emit(OpCodes.Call, ImportMethod<AssemblyName>(assemblyDef, "get_Name"));
+			il.Emit(OpCodes.Ldstr, ".dll");
+			il.Emit(OpCodes.Call, ImportMethod<String>(assemblyDef, "Concat", typeof(string), typeof(string)));
+			il.Emit(OpCodes.Callvirt, ImportMethod<Assembly>(assemblyDef, "GetManifestResourceStream", typeof(String)));
+			il.Emit(OpCodes.Stloc_0);
+			il.Emit(OpCodes.Ldloc_0);
+			il.Emit(OpCodes.Callvirt, ImportMethod<Stream>(assemblyDef, "get_Length"));
+			il.Emit(OpCodes.Conv_Ovf_I);
+			il.Emit(OpCodes.Newarr, ImportType<byte>(assemblyDef));
+			il.Emit(OpCodes.Stloc_1);
+			il.Emit(OpCodes.Ldloc_0);
+			il.Emit(OpCodes.Ldloc_1);
+			il.Emit(OpCodes.Ldc_I4_0);
+			il.Emit(OpCodes.Ldloc_0);
+			il.Emit(OpCodes.Callvirt, ImportMethod<Stream>(assemblyDef, "get_Length"));
+			il.Emit(OpCodes.Conv_I4);
+			il.Emit(OpCodes.Callvirt, ImportMethod<Stream>(assemblyDef, "Read", typeof(byte[]), typeof(int), typeof(int)));
+			il.Emit(OpCodes.Pop);
+			il.Emit(OpCodes.Ldloc_1);
+			il.Emit(OpCodes.Call, ImportMethod<Assembly>(assemblyDef, "Load", typeof(byte[])));
+			il.Emit(OpCodes.Stloc_2);
+			il.Emit(OpCodes.Ldloc_2);
+			il.Emit(OpCodes.Ret);
+
+			return method;
+			}
+
 		private static void BuildWrapper(String outputFile, String mainAssembly, List<String> libraries, String mainClassTypeName, String mainMethod, Boolean compress)
 			{
-			var resourcesRaw = libraries.ToList();
+			var resourcesRaw = libraries == null ? new List<string>() : libraries.ToList();
 			resourcesRaw.Add(mainAssembly);
 			var resourcesLocal = CreateResources("Resources.resources", resourcesRaw, compress);
 			var provider = new CSharpCodeProvider();
@@ -195,7 +308,7 @@ namespace Omega.App.nMerge
 				{
 				var dir = Path.GetDirectoryName(libraryFile);
 				var searchPattern = Path.GetFileName(libraryFile);
-				var files = Directory.GetFiles(dir ?? "./", searchPattern ?? "*.dll");
+				var files = Directory.GetFiles(String.IsNullOrWhiteSpace(dir) ? "./" : dir, searchPattern ?? "*.dll");
 
 				foreach (var file in files.Where(file => file != mainAssembly && Path.GetFileName(file) != "Ionic.BZip2.dll"))
 					{
@@ -205,6 +318,9 @@ namespace Omega.App.nMerge
 					Console.WriteLine("Found library " + file);
 					l.Add(file);
 					}
+
+				if(files.Length == 0)
+					Console.WriteLine("No files found for: " + libraryFile);
 				}
 			return l;
 			} 
@@ -243,9 +359,42 @@ namespace Omega.App.nMerge
 			if(!callee.IsStatic)
 				throw new Exception("Method must be static.");
 
-			
+			return callee;
+			}
+
+		private static MethodDefinition FindMethod(String methodRaw, AssemblyDefinition assemblyDef)
+			{
+			if(String.IsNullOrWhiteSpace(methodRaw))
+				throw new ArgumentNullException("methodRaw", "No method supplied.");
+
+			ModuleDefinition module = assemblyDef.MainModule;
+			if(!methodRaw.Contains("::"))
+				throw new Exception("Invalid format for m(ethod) parameter. Expected: Some.Namespace.Class::MethodName");
+
+			String typeName = methodRaw.Substring(0, methodRaw.IndexOf("::"));
+			String methodName = methodRaw.Substring(typeName.Length + 2);
+			TypeDefinition moduleInitializerClass = module.Types.FirstOrDefault(t => t.FullName == typeName);
+
+			if(moduleInitializerClass == null)
+				throw new Exception(String.Format("No type named '{0}' exists in assembly '{1}'!", typeName, assemblyDef.FullName));
+
+			MethodDefinition callee = moduleInitializerClass.Methods.FirstOrDefault(m => m.Name == methodName);
+
+			if(callee == null)
+				throw new Exception(string.Format("No method named '{0}' exists in the type '{1}'", methodName, typeName));
 
 			return callee;
+			}
+
+		private static TypeDefinition FindType(String typeName, AssemblyDefinition assemblyDef)
+			{
+			if(String.IsNullOrWhiteSpace(typeName))
+				throw new ArgumentNullException("typeName", "No type supplied.");
+
+			ModuleDefinition module = assemblyDef.MainModule;
+			return module.Types.FirstOrDefault(t => t.FullName == typeName);
+
+			
 			}
 
 		private static AssemblyDefinition ReadAssembly(String assemblyFile)

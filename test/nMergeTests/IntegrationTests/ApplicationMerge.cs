@@ -11,56 +11,28 @@ namespace nMergeTests.IntegrationTests
 	[TestFixture]
 	public class ApplicationMerge
 		{
-
-		private static String ExecuteHelper(String commandline, params String[] args)
-			{
-			var psi = new ProcessStartInfo(Path.GetFullPath(commandline), args == null ? null : String.Join(" ", args))
-									{
-										RedirectStandardOutput = true,
-										UseShellExecute = false,
-										CreateNoWindow = true
-
-									};
-			Process p = Process.Start(psi);
-			Assert.NotNull(p);
-			
-			return p.StandardOutput.ReadToEnd();
-			}
-
-		private static String GetTestMergeResultFileName()
+		public static String GetTestMergeResultFileName()
 			{
 			return Path.Combine(Setup.GetTestTempDir(3), Setup.ApplicationName + ".merged.exe");
 			}
 
-		private static void TestIntegration(params String[] args)
+		public static void TestIntegration(params String[] args)
 			{
 			String testTempDir = Setup.GetTestTempDir(2);
 			Directory.CreateDirectory(testTempDir);
 
-			var arguments = new List<String>();
+			var arguments = new List<string>();
 			arguments.AddRange(args);
 			arguments.Add(@"/in=./" + Setup.ApplicationName);
 			arguments.Add("/out=" + GetTestMergeResultFileName());
 
 			Program.Main(arguments.ToArray());
-			Assert.IsTrue(File.Exists(GetTestMergeResultFileName()), String.Format("Merging failed: Assembly '{0}' not created", GetTestMergeResultFileName()));
+			Assert.IsTrue(File.Exists(GetTestMergeResultFileName()), String.Format((string) "Merging failed: Assembly '{0}' not created", (object) GetTestMergeResultFileName()));
 
 			Debug.WriteLine("----- Merge completed -----");
 			Debug.WriteLine(String.Format("----- Filesize: {0} -----", (new FileInfo(GetTestMergeResultFileName()).Length)));
 			}
 
-		private static void TestMergeResult(params String[] args)
-			{
-			String result = args.Skip(1).Aggregate("", (current, s) => current + s);
-			result += ":" + args[0];
-
-			String stdout = ExecuteHelper(GetTestMergeResultFileName(), args);
-			Debug.WriteLine(stdout);
-			Assert.That(stdout.TrimEnd(), Is.StringEnding(result));
-
-			}
-
-		//[TestFixtureTearDown]
 		[TestFixtureSetUp]
 		public void Cleanup()
 			{
@@ -72,50 +44,50 @@ namespace nMergeTests.IntegrationTests
 		public void AppOnly()
 			{
 			TestIntegration();
-			TestMergeResult("123", "HelloWorld");
+			Setup.TestMergeResult("123", "HelloWorld");
 			}
 		[Test]
 		public void AppFull()
 			{
-			TestIntegration(@"/m=Application.Program::Main", @"/lib=.\MainLibrary.dll,.\RequiredLibrary.dll");
-			TestMergeResult("123", "HelloWorld");
+			TestIntegration(@"/m=Application.Program::Main", @"/lib=.\MainLibrary.dll,.\RequiredLibrary.dll,SilentRequiredLibrary.dll");
+			Setup.TestMergeResult("123", "HelloWorld");
 			}
 		[Test]
 		public void AppWithLibraries()
 			{
 			TestIntegration(@"/lib=.\MainLibrary.dll,.\RequiredLibrary.dll");
-			TestMergeResult("123", "HelloWorld");
+			Setup.TestMergeResult("123", "HelloWorld");
 			}
 		[Test]
 		public void AppWithEntryPoint()
 			{
 			TestIntegration(@"/m=Application.Program::AnotherEntryPoint");
-			TestMergeResult("123", "HelloWorld", "MoreStrings");
+			Setup.TestMergeResult("123", "HelloWorld", "MoreStrings");
 			}
 		[Test]
 		public void AppWithParamsEntryPoint()
 			{
 			TestIntegration(@"/m=Application.Program::ParamsEntryPoint");
-			TestMergeResult("123", "HelloWorld", "MoreStrings", "AndOneMoreString");
+			Setup.TestMergeResult("123", "HelloWorld", "MoreStrings", "AndOneMoreString");
 			}
 
 		[Test]
 		public void AppOnlyCompressed()
 			{
 			TestIntegration(@"/zip");
-			TestMergeResult("123", "HelloWorld");
+			Setup.TestMergeResult("123", "HelloWorld");
 			}
 		[Test]
 		public void AppFullCompressed()
 			{
-			TestIntegration(@"/m=Application.Program::Main", @"/lib=.\MainLibrary.dll,.\RequiredLibrary.dll", @"/zip");
-			TestMergeResult("123", "HelloWorld");
+			TestIntegration(@"/m=Application.Program::Main", @"/lib=.\MainLibrary.dll,.\RequiredLibrary.dll,SilentRequiredLibrary.dll", @"/zip");
+			Setup.TestMergeResult("123", "HelloWorld");
 			}
 		[Test]
 		public void AppWithEntryPointCompressed()
 			{
 			TestIntegration(@"/m=Application.Program::AnotherEntryPoint", @"/zip");
-			TestMergeResult("123", "HelloWorld", "MoreStrings");
+			Setup.TestMergeResult("123", "HelloWorld", "MoreStrings");
 
 			}
 		}

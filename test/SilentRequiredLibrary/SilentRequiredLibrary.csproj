@@ -5,11 +5,11 @@
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProductVersion>8.0.30703</ProductVersion>
     <SchemaVersion>2.0</SchemaVersion>
-    <ProjectGuid>{05E5DF63-E768-4517-9003-71892097017F}</ProjectGuid>
+    <ProjectGuid>{25E35667-647F-473A-B656-3AB306E0EC47}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>nMergeTests</RootNamespace>
-    <AssemblyName>nMergeTests</AssemblyName>
+    <RootNamespace>SilentRequiredLibrary</RootNamespace>
+    <AssemblyName>SilentRequiredLibrary</AssemblyName>
     <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
   </PropertyGroup>
@@ -31,9 +31,6 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="nunit.framework">
-      <HintPath>..\nunit.framework.dll</HintPath>
-    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Xml.Linq" />
@@ -43,19 +40,8 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="IntegrationTests\ApplicationMerge.cs" />
-    <Compile Include="IntegrationTests\AssemblyMerge.cs" />
+    <Compile Include="SilentClass.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Setup.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <Folder Include="UnitTests\" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\nMerge\nMerge.csproj">
-      <Project>{FE8A21AE-EBA4-4957-B1B0-9E05EC9979AA}</Project>
-      <Name>nMerge</Name>
-    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

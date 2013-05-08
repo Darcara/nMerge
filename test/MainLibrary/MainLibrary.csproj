@@ -48,6 +48,10 @@
       <Project>{156D79D6-F6B8-4381-A7F6-CD144D74A913}</Project>
       <Name>RequiredLibrary</Name>
     </ProjectReference>
+    <ProjectReference Include="..\SilentRequiredLibrary\SilentRequiredLibrary.csproj">
+      <Project>{25E35667-647F-473A-B656-3AB306E0EC47}</Project>
+      <Name>SilentRequiredLibrary</Name>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

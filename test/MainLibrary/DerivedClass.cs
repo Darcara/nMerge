@@ -1,5 +1,6 @@
 ﻿using System;
 using RequiredLibrary;
+using SilentRequiredLibrary;
 
 namespace MainLibrary
 	{
@@ -15,6 +16,17 @@ namespace MainLibrary
 		public String GetTheString()
 			{
 			return _someString;
+			}
+
+		public String GetStringFromSilentLibrary(String s)
+			{
+			var sl = new SilentClass(s, _someString);
+			return sl.ComputeOutput();
+			}
+
+		public static void UnusedMethod()
+			{
+			Console.WriteLine("This 'MainLibrary.DerivedClass::UnusedMethod' should never be displayed.");
 			}
 		}
 	}
