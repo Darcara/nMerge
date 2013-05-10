@@ -33,7 +33,7 @@ namespace nMergeTests.IntegrationTests
 			Debug.WriteLine(String.Format("----- Filesize: {0} -----", (new FileInfo(GetTestMergeResultFileName()).Length)));
 			}
 
-		[TestFixtureSetUp]
+		//[TestFixtureSetUp]
 		public void Cleanup()
 			{
 			if(Directory.Exists(Setup.TempDir))
@@ -88,7 +88,14 @@ namespace nMergeTests.IntegrationTests
 			{
 			TestIntegration(@"/m=Application.Program::AnotherEntryPoint", @"/zip");
 			Setup.TestMergeResult("123", "HelloWorld", "MoreStrings");
-
 			}
+		[Test]
+		public void AppOnlyCompressedNoZipLib()
+			{
+			TestIntegration(@"/zip", @"/noziplib");
+			File.Copy("Ionic.BZip2.dll", Path.Combine(Setup.GetTestTempDir(), "Ionic.BZip2.dll"));
+			Setup.TestMergeResult("123", "HelloWorld");
+			}
+	
 		}
 	}

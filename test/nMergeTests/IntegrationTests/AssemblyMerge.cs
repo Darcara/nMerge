@@ -18,7 +18,7 @@ namespace nMergeTests.IntegrationTests
 			return Path.Combine(Setup.GetTestTempDir(3), Setup.AssemblyName);
 			}
 
-		public static void TestIntegration(params String[] args)
+		public static String TestIntegration(params String[] args)
 			{
 			String testTempDir = Setup.GetTestTempDir(2);
 			Directory.CreateDirectory(testTempDir);
@@ -34,10 +34,7 @@ namespace nMergeTests.IntegrationTests
 			Debug.WriteLine("----- Merge completed -----");
 			Debug.WriteLine(String.Format("----- Filesize: {0} -----", (new FileInfo(GetTestMergeResultFileName()).Length)));
 
-			Program.Main("/in=" + Setup.ApplicationName, "/out=" + Path.Combine(Setup.GetTestTempDir(2), Setup.ApplicationName) + ".merged.exe", "/lib=", "/m=Application.Program::SilentEntryPoint");
-			//File.Copy(Setup.ApplicationName, Path.Combine(Path.GetDirectoryName(GetTestMergeResultFileName()), Setup.ApplicationName));
-			File.Copy("./RequiredLibrary.dll", Path.Combine(Path.GetDirectoryName(GetTestMergeResultFileName()), "RequiredLibrary.dll"),true);
-			//File.Copy("./SilentRequiredLibrary.dll", Path.Combine(Path.GetDirectoryName(GetTestMergeResultFileName()), "SilentRequiredLibrary.dll"), true);
+			return GetTestMergeResultFileName();
 			}
 
 		//[TestFixtureSetUp]
@@ -49,11 +46,64 @@ namespace nMergeTests.IntegrationTests
 
 
 		[Test]
-		public void MergeAssembly()
+		public void Assembly()
 			{
 			TestIntegration(@"/lib=SilentRequiredLibrary.dll");
+			Program.Main("/in=" + Setup.ApplicationName, "/out=" + Path.Combine(Setup.GetTestTempDir(), Setup.ApplicationName) + ".merged.exe", "/lib=", "/m=Application.Program::SilentEntryPoint");
+			File.Copy("./RequiredLibrary.dll", Path.Combine(Setup.GetTestTempDir(), "RequiredLibrary.dll"), true);
 
 			Setup.TestMergeResult("123", "HelloWorld", "MoreStrings");
 			}
+		[Test]
+		public void AssemblyZip()
+			{
+			TestIntegration(@"/lib=SilentRequiredLibrary.dll", @"/zip");
+			Program.Main("/in=" + Setup.ApplicationName, "/out=" + Path.Combine(Setup.GetTestTempDir(), Setup.ApplicationName) + ".merged.exe", "/lib=", "/m=Application.Program::SilentEntryPoint");
+			File.Copy("./RequiredLibrary.dll", Path.Combine(Setup.GetTestTempDir(), "RequiredLibrary.dll"), true);
+
+			Setup.TestMergeResult("123", "HelloWorld", "MoreStrings");
+			}
+
+		[Test]
+		public void AppWithAssembly()
+			{
+			String result = TestIntegration(@"/lib=SilentRequiredLibrary.dll");
+			Program.Main("/in=" + Setup.ApplicationName, "/out=" + Path.Combine(Setup.GetTestTempDir(), Setup.ApplicationName) + ".merged.exe", "/lib=RequiredLibrary.dll," + result, "/m=Application.Program::SilentEntryPoint");
+
+			File.Delete(result);
+
+			Setup.TestMergeResult("123", "HelloWorld", "MoreStrings");
+			}
+		[Test]
+		public void AppWithAssemblyZip()
+			{
+			String result = TestIntegration(@"/lib=SilentRequiredLibrary.dll", @"/zip");
+			Program.Main("/in=" + Setup.ApplicationName, "/out=" + Path.Combine(Setup.GetTestTempDir(), Setup.ApplicationName) + ".merged.exe", "/lib=RequiredLibrary.dll," + result, "/m=Application.Program::SilentEntryPoint");
+
+			File.Delete(result);
+
+			Setup.TestMergeResult("123", "HelloWorld", "MoreStrings");
+			}
+		[Test]
+		public void AppZipWithAssemblyZip()
+			{
+			String result = TestIntegration(@"/lib=SilentRequiredLibrary.dll", @"/zip");
+			Program.Main("/in=" + Setup.ApplicationName, "/out=" + Path.Combine(Setup.GetTestTempDir(), Setup.ApplicationName) + ".merged.exe", "/lib=RequiredLibrary.dll," + result, "/m=Application.Program::SilentEntryPoint", @"/zip");
+
+			File.Delete(result);
+
+			Setup.TestMergeResult("123", "HelloWorld", "MoreStrings");
+			}
+		[Test]
+		public void AppZipWithAssemblyZipNoZipLib()
+			{
+			String result = TestIntegration(@"/lib=SilentRequiredLibrary.dll", @"/zip", @"/noziplib");
+			Program.Main("/in=" + Setup.ApplicationName, "/out=" + Path.Combine(Setup.GetTestTempDir(), Setup.ApplicationName) + ".merged.exe", "/lib=RequiredLibrary.dll," + result, "/m=Application.Program::SilentEntryPoint", @"/zip");
+
+			File.Delete(result);
+
+			Setup.TestMergeResult("123", "HelloWorld", "MoreStrings");
+			}
+
 		}
 	}

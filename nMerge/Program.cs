@@ -26,6 +26,7 @@ namespace Omega.App.nMerge
 			String methodRaw = null;
 			String librariesRaw = null;
 			Boolean compress = false;
+			Boolean includeZipLib = true;
 
 			List<String> libraries = null;
 			MethodReference method = null;
@@ -40,6 +41,7 @@ namespace Omega.App.nMerge
 										{"m=", v => methodRaw = v},
 										{"lib=", v => librariesRaw = v},
 										{"zip", v => compress = true},
+										{"noziplib", v => includeZipLib = false},
 			          	};
 
 			
@@ -89,22 +91,43 @@ namespace Omega.App.nMerge
 					if(method == null)
 						throw new Exception("Entry method could not be determined for " + (String.IsNullOrEmpty(methodRaw) ? "<DefaultEntryPoint>" : methodRaw));
 
-					BuildWrapper(outputFile, inputFile, libraries, method.DeclaringType.FullName + "," + assemblyDef.FullName, method.Name, compress);
+					BuildWrapper(outputFile, inputFile, libraries, method.DeclaringType.FullName + "," + assemblyDef.FullName, method.Name, compress, includeZipLib);
 					InjectWrapper();
 					}
 				else
 					{
 					foreach (var library in libraries)
 						{
-						assemblyDef.MainModule.Resources.Add(new EmbeddedResource(Path.GetFileName(library), ManifestResourceAttributes.Public, File.ReadAllBytes(library)));
+						if(compress)
+							{
+							String compressedLib = Path.GetFileName(library) + ".bz2";
+							CopyFile(library, compressedLib, true);
+							assemblyDef.MainModule.Resources.Add(new EmbeddedResource(Path.GetFileName(compressedLib), ManifestResourceAttributes.Public, File.ReadAllBytes(compressedLib)));
+							}
+						else
+							assemblyDef.MainModule.Resources.Add(new EmbeddedResource(Path.GetFileName(library) + ".bz2", ManifestResourceAttributes.Public, File.ReadAllBytes(library)));
 						}
+					
 
 					var unusedMethod = FindMethod("MainLibrary.DerivedClass::UnusedMethod", assemblyDef);
 					var voidRef = assemblyDef.MainModule.Import(unusedMethod.ReturnType);
 					const MethodAttributes attributes = MethodAttributes.Static | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName;
 					var cctor = new MethodDefinition(".cctor", attributes, voidRef);
-					
-					var resolveMethod = CreateResolveMethod(assemblyDef);
+
+					List<MethodDefinition> resolveMethod;
+
+					if(compress)
+						{
+						if(includeZipLib)
+							{
+							assemblyDef.MainModule.Resources.Add(new EmbeddedResource("Ionic.BZip2.dll.bz2", ManifestResourceAttributes.Public, File.ReadAllBytes("Ionic.BZip2.dll")));
+							resolveMethod = CreateResolveMixedMethod(assemblyDef);
+							}
+						else
+							resolveMethod = CreateResolveCompressedMethod(assemblyDef);
+						}
+					else
+						resolveMethod = CreateResolveMinimalMethod(assemblyDef);
 
 					ILProcessor il = cctor.Body.GetILProcessor();
 
@@ -112,7 +135,7 @@ namespace Omega.App.nMerge
 					il.Append(il.Create(OpCodes.Call, unusedMethod));
 					il.Append(il.Create(OpCodes.Call, ImportMethod<AppDomain>(assemblyDef, "get_CurrentDomain")));
 					il.Emit(OpCodes.Ldnull);
-					il.Emit(OpCodes.Ldftn, resolveMethod);
+					il.Emit(OpCodes.Ldftn, resolveMethod.First(m => m.Name == "OnAssemblyResolve"));
 					il.Emit(OpCodes.Newobj, ImportCtor<ResolveEventHandler>(assemblyDef, typeof(object), typeof(IntPtr)));
 					il.Emit(OpCodes.Callvirt, ImportMethod<AppDomain>(assemblyDef, "add_AssemblyResolve"));
 					il.Append(il.Create(OpCodes.Call, unusedMethod));
@@ -135,7 +158,8 @@ namespace Omega.App.nMerge
 
 
 					var moduleType = assemblyDef.MainModule.Types.Single(x => x.Name == "<Module>");
-					moduleType.Methods.Add(resolveMethod);
+					foreach(var m in resolveMethod)
+					moduleType.Methods.Add(m);
 					assemblyDef.Write(outputFile);
 					}
 
@@ -161,29 +185,37 @@ namespace Omega.App.nMerge
 			{
 			return assemblyDef.MainModule.Import(typeof(T).GetMethod(methodName, types));
 			}
+		private static MethodReference ImportMethod(AssemblyDefinition assemblyDef, Type t, string methodName, params Type[] types)
+			{
+			return assemblyDef.MainModule.Import(t.GetMethod(methodName, types));
+			}
 		private static MethodReference ImportCtor<T>(AssemblyDefinition assemblyDef, params Type[] types)
 			{
 			return assemblyDef.MainModule.Import(typeof(T).GetConstructor(types));
 			}
 
-		private static MethodDefinition CreateResolveMethod(AssemblyDefinition assemblyDef)
+		private static List<MethodDefinition> CreateResolveMinimalMethod(AssemblyDefinition assemblyDef)
 			{
 			var method = new MethodDefinition("OnAssemblyResolve", MethodAttributes.Private | MethodAttributes.HideBySig | MethodAttributes.Static, ImportType<Assembly>(assemblyDef));
 			method.Parameters.Add(new ParameterDefinition(ImportType<object>(assemblyDef)));
 			method.Parameters.Add(new ParameterDefinition(ImportType<ResolveEventArgs>(assemblyDef)));
-			method.Body.Variables.Add(new VariableDefinition(ImportType<Assembly>(assemblyDef)));
-			method.Body.Variables.Add(new VariableDefinition(ImportType<string>(assemblyDef)));
 			method.Body.Variables.Add(new VariableDefinition(ImportType<Stream>(assemblyDef)));
 			method.Body.Variables.Add(new VariableDefinition(ImportType<byte[]>(assemblyDef)));
 			method.Body.InitLocals = true;
 
 			var il = method.Body.GetILProcessor();
+			il.Emit(OpCodes.Ldstr, "Resolving(Minimal): ");
+			il.Emit(OpCodes.Ldarg_1);
+			il.Emit(OpCodes.Callvirt, ImportMethod<ResolveEventArgs>(assemblyDef, "get_Name"));
+			il.Emit(OpCodes.Call, ImportMethod<String>(assemblyDef, "Concat", typeof(String), typeof(String)));
+			il.Emit(OpCodes.Call, ImportMethod(assemblyDef, typeof(Console), "WriteLine", typeof(String)));
+
 			il.Emit(OpCodes.Call, ImportMethod<Assembly>(assemblyDef, "GetExecutingAssembly"));
 			il.Emit(OpCodes.Ldarg_1);
 			il.Emit(OpCodes.Callvirt, ImportMethod<ResolveEventArgs>(assemblyDef, "get_Name"));
 			il.Emit(OpCodes.Newobj, ImportCtor<AssemblyName>(assemblyDef, typeof(String)));
 			il.Emit(OpCodes.Call, ImportMethod<AssemblyName>(assemblyDef, "get_Name"));
-			il.Emit(OpCodes.Ldstr, ".dll");
+			il.Emit(OpCodes.Ldstr, ".dll.bz2");
 			il.Emit(OpCodes.Call, ImportMethod<String>(assemblyDef, "Concat", typeof(string), typeof(string)));
 			il.Emit(OpCodes.Callvirt, ImportMethod<Assembly>(assemblyDef, "GetManifestResourceStream", typeof(String)));
 			il.Emit(OpCodes.Stloc_0);
@@ -202,14 +234,179 @@ namespace Omega.App.nMerge
 			il.Emit(OpCodes.Pop);
 			il.Emit(OpCodes.Ldloc_1);
 			il.Emit(OpCodes.Call, ImportMethod<Assembly>(assemblyDef, "Load", typeof(byte[])));
-			il.Emit(OpCodes.Stloc_2);
-			il.Emit(OpCodes.Ldloc_2);
 			il.Emit(OpCodes.Ret);
 
-			return method;
+			return new List<MethodDefinition>() { method };
+			}
+		private static List<MethodDefinition> CreateResolveCompressedMethod(AssemblyDefinition assemblyDef)
+			{
+			var method = new MethodDefinition("OnAssemblyResolve", MethodAttributes.Private | MethodAttributes.HideBySig | MethodAttributes.Static, ImportType<Assembly>(assemblyDef));
+			method.Parameters.Add(new ParameterDefinition(ImportType<object>(assemblyDef)));
+			method.Parameters.Add(new ParameterDefinition(ImportType<ResolveEventArgs>(assemblyDef)));
+			method.Body.Variables.Add(new VariableDefinition("inStream", ImportType<Stream>(assemblyDef)));
+			method.Body.Variables.Add(new VariableDefinition("buf", ImportType<byte[]>(assemblyDef)));
+			method.Body.Variables.Add(new VariableDefinition("outStream", ImportType<Stream>(assemblyDef)));
+			method.Body.Variables.Add(new VariableDefinition("bytesRead", ImportType<Int32>(assemblyDef)));
+			method.Body.InitLocals = true;
+
+			var il = method.Body.GetILProcessor();
+			var loopBodyStart = il.Create(OpCodes.Ldloc_2);
+			var loopHeadStart = il.Create(OpCodes.Ldloc_0);
+
+
+			il.Emit(OpCodes.Ldstr, "Resolving(Compressed): ");
+			il.Emit(OpCodes.Ldarg_1);
+			il.Emit(OpCodes.Callvirt, ImportMethod<ResolveEventArgs>(assemblyDef, "get_Name"));
+			il.Emit(OpCodes.Call, ImportMethod<String>(assemblyDef, "Concat", typeof(String), typeof(String)));
+			il.Emit(OpCodes.Call, ImportMethod(assemblyDef, typeof(Console), "WriteLine", typeof(String)));
+
+			il.Emit(OpCodes.Call, ImportMethod<Assembly>(assemblyDef, "GetExecutingAssembly"));
+			il.Emit(OpCodes.Ldarg_1);
+			il.Emit(OpCodes.Callvirt, ImportMethod<ResolveEventArgs>(assemblyDef, "get_Name"));
+			il.Emit(OpCodes.Newobj, ImportCtor<AssemblyName>(assemblyDef, typeof(String)));
+			il.Emit(OpCodes.Call, ImportMethod<AssemblyName>(assemblyDef, "get_Name"));
+			il.Emit(OpCodes.Ldstr, ".dll.bz2");
+			il.Emit(OpCodes.Call, ImportMethod<String>(assemblyDef, "Concat", typeof(String), typeof(String)));
+
+			il.Emit(OpCodes.Callvirt, ImportMethod<Assembly>(assemblyDef, "GetManifestResourceStream", typeof(String)));
+			il.Emit(OpCodes.Newobj, ImportCtor<BZip2InputStream>(assemblyDef, typeof(Stream)));
+			il.Emit(OpCodes.Stloc_0);
+			il.Emit(OpCodes.Ldc_I4, 1024);
+			il.Emit(OpCodes.Newarr, ImportType<byte>(assemblyDef));
+			il.Emit(OpCodes.Stloc_1);
+			il.Emit(OpCodes.Newobj, ImportCtor<MemoryStream>(assemblyDef));
+			il.Emit(OpCodes.Stloc_2);
+			il.Emit(OpCodes.Br_S, loopHeadStart);	//Jump to head start
+			//loop body start
+			il.Append(loopBodyStart);
+			il.Emit(OpCodes.Ldloc_1);
+			il.Emit(OpCodes.Ldc_I4_0);
+			il.Emit(OpCodes.Ldloc_3);
+			il.Emit(OpCodes.Callvirt, ImportMethod<Stream>(assemblyDef, "Write", typeof(byte[]), typeof(Int32), typeof(Int32)));
+			//loop head start
+			il.Append(loopHeadStart);
+			il.Emit(OpCodes.Ldloc_1);
+			il.Emit(OpCodes.Ldc_I4_0);
+			il.Emit(OpCodes.Ldc_I4, 1024);
+			il.Emit(OpCodes.Callvirt, ImportMethod<Stream>(assemblyDef, "Read", typeof(byte[]), typeof(Int32), typeof(Int32)));
+			il.Emit(OpCodes.Dup);
+			il.Emit(OpCodes.Stloc_3);
+			il.Emit(OpCodes.Ldc_I4_0);
+			il.Emit(OpCodes.Bgt_S, loopBodyStart);	//Conditional jump to body start
+			//loop end
+
+			il.Emit(OpCodes.Ldloc_2);
+			il.Emit(OpCodes.Callvirt, ImportMethod<MemoryStream>(assemblyDef, "ToArray"));
+			il.Emit(OpCodes.Call, ImportMethod<Assembly>(assemblyDef, "Load", typeof(byte[])));
+			il.Emit(OpCodes.Ret);
+
+			return new List<MethodDefinition>() { method };
+			}
+		private static List<MethodDefinition> CreateResolveMixedMethod(AssemblyDefinition assemblyDef)
+			{
+			var loadAssemblyFromStream = new MethodDefinition("LoadAssemblyFromStream", MethodAttributes.Private | MethodAttributes.HideBySig | MethodAttributes.Static, ImportType<Assembly>(assemblyDef));
+			loadAssemblyFromStream.Parameters.Add(new ParameterDefinition(ImportType<Stream>(assemblyDef)));
+			loadAssemblyFromStream.Body.Variables.Add(new VariableDefinition("buf", ImportType<byte[]>(assemblyDef)));
+			loadAssemblyFromStream.Body.Variables.Add(new VariableDefinition("outStream", ImportType<Stream>(assemblyDef)));
+			loadAssemblyFromStream.Body.Variables.Add(new VariableDefinition("bytesRead", ImportType<Int32>(assemblyDef)));
+			loadAssemblyFromStream.Body.InitLocals = true;
+
+			var il = loadAssemblyFromStream.Body.GetILProcessor();
+			var loopBodyStart = il.Create(OpCodes.Ldloc_1);
+			var loopHeadStart = il.Create(OpCodes.Ldarg_0);
+			
+			il.Emit(OpCodes.Ldc_I4, 1024);
+			il.Emit(OpCodes.Newarr, ImportType<byte>(assemblyDef));
+			il.Emit(OpCodes.Stloc_0);
+			il.Emit(OpCodes.Newobj, ImportCtor<MemoryStream>(assemblyDef));
+			il.Emit(OpCodes.Stloc_1);
+			il.Emit(OpCodes.Br_S, loopHeadStart);	//Jump to head start
+			//loop body start
+			il.Append(loopBodyStart);
+			il.Emit(OpCodes.Ldloc_0);
+			il.Emit(OpCodes.Ldc_I4_0);
+			il.Emit(OpCodes.Ldloc_2);
+			il.Emit(OpCodes.Callvirt, ImportMethod<Stream>(assemblyDef, "Write", typeof(byte[]), typeof(Int32), typeof(Int32)));
+			//loop head start
+			il.Append(loopHeadStart);
+			il.Emit(OpCodes.Ldloc_0);
+			il.Emit(OpCodes.Ldc_I4_0);
+			il.Emit(OpCodes.Ldc_I4, 1024);
+			il.Emit(OpCodes.Callvirt, ImportMethod<Stream>(assemblyDef, "Read", typeof(byte[]), typeof(Int32), typeof(Int32)));
+			il.Emit(OpCodes.Dup);
+			il.Emit(OpCodes.Stloc_2);
+			il.Emit(OpCodes.Ldc_I4_0);
+			il.Emit(OpCodes.Bgt_S, loopBodyStart);	//Conditional jump to body start
+			//loop end
+
+			il.Emit(OpCodes.Ldloc_1);
+			il.Emit(OpCodes.Callvirt, ImportMethod<MemoryStream>(assemblyDef, "ToArray"));
+			il.Emit(OpCodes.Call, ImportMethod<Assembly>(assemblyDef, "Load", typeof(byte[])));
+			il.Emit(OpCodes.Ret);
+
+
+
+
+			var loadAssemblyFromCompressedStream = new MethodDefinition("LoadAssemblyFromCompressedStream", MethodAttributes.Private | MethodAttributes.HideBySig | MethodAttributes.Static, ImportType<Assembly>(assemblyDef));
+			loadAssemblyFromCompressedStream.Parameters.Add(new ParameterDefinition(ImportType<Stream>(assemblyDef)));
+			loadAssemblyFromCompressedStream.Body.InitLocals = true;
+
+			il = loadAssemblyFromCompressedStream.Body.GetILProcessor();
+			il.Emit(OpCodes.Ldarg_0);
+			il.Emit(OpCodes.Newobj, ImportCtor<BZip2InputStream>(assemblyDef, typeof(Stream)));
+			il.Emit(OpCodes.Call, loadAssemblyFromStream);
+			il.Emit(OpCodes.Ret);
+			
+		
+
+			var method = new MethodDefinition("OnAssemblyResolve", MethodAttributes.Private | MethodAttributes.HideBySig | MethodAttributes.Static, ImportType<Assembly>(assemblyDef));
+			method.Parameters.Add(new ParameterDefinition(ImportType<object>(assemblyDef)));
+			method.Parameters.Add(new ParameterDefinition(ImportType<ResolveEventArgs>(assemblyDef)));
+			method.Body.Variables.Add(new VariableDefinition("assemblyName", ImportType<String>(assemblyDef)));
+			method.Body.Variables.Add(new VariableDefinition("inStream", ImportType<Stream>(assemblyDef)));
+			method.Body.Variables.Add(new VariableDefinition("buf", ImportType<byte[]>(assemblyDef)));
+			method.Body.Variables.Add(new VariableDefinition("outStream", ImportType<Stream>(assemblyDef)));
+			method.Body.Variables.Add(new VariableDefinition("bytesRead", ImportType<Int32>(assemblyDef)));
+			method.Body.InitLocals = true;
+
+			il = method.Body.GetILProcessor();
+			var callLoadAssemblyFromStream = il.Create(OpCodes.Ldloc_1);
+
+			il.Emit(OpCodes.Ldstr, "Resolving(Mixed): ");
+			il.Emit(OpCodes.Ldarg_1);
+			il.Emit(OpCodes.Callvirt, ImportMethod<ResolveEventArgs>(assemblyDef, "get_Name"));
+			il.Emit(OpCodes.Call, ImportMethod<String>(assemblyDef, "Concat", typeof(String), typeof(String)));
+			il.Emit(OpCodes.Call, ImportMethod(assemblyDef, typeof(Console), "WriteLine", typeof(String)));
+
+			il.Emit(OpCodes.Ldarg_1);
+			il.Emit(OpCodes.Callvirt, ImportMethod<ResolveEventArgs>(assemblyDef, "get_Name"));
+			il.Emit(OpCodes.Newobj, ImportCtor<AssemblyName>(assemblyDef, typeof(String)));
+			il.Emit(OpCodes.Call, ImportMethod<AssemblyName>(assemblyDef, "get_Name"));
+			il.Emit(OpCodes.Ldstr, ".dll.bz2");
+			il.Emit(OpCodes.Call, ImportMethod<String>(assemblyDef, "Concat", typeof(String), typeof(String)));
+			il.Emit(OpCodes.Stloc_0);
+			il.Emit(OpCodes.Call, ImportMethod<Assembly>(assemblyDef, "GetExecutingAssembly"));
+			il.Emit(OpCodes.Ldloc_0);
+			il.Emit(OpCodes.Callvirt, ImportMethod<Assembly>(assemblyDef, "GetManifestResourceStream", typeof(String)));
+			il.Emit(OpCodes.Stloc_1);
+			il.Emit(OpCodes.Ldloc_0);
+			il.Emit(OpCodes.Ldstr, "Ionic.BZip2.dll.bz2");
+			il.Emit(OpCodes.Call, ImportMethod<String>(assemblyDef, "op_Equality", typeof(String), typeof(String)));
+			il.Emit(OpCodes.Brtrue_S, callLoadAssemblyFromStream);
+
+			il.Emit(OpCodes.Ldloc_1);
+			il.Emit(OpCodes.Call, loadAssemblyFromCompressedStream);
+			il.Emit(OpCodes.Ret);
+			
+			il.Append(callLoadAssemblyFromStream);
+			il.Emit(OpCodes.Call, loadAssemblyFromStream);
+			il.Emit(OpCodes.Ret);
+
+
+			return new List<MethodDefinition>() { method, loadAssemblyFromCompressedStream, loadAssemblyFromStream };
 			}
 
-		private static void BuildWrapper(String outputFile, String mainAssembly, List<String> libraries, String mainClassTypeName, String mainMethod, Boolean compress)
+		private static void BuildWrapper(String outputFile, String mainAssembly, List<String> libraries, String mainClassTypeName, String mainMethod, Boolean compress, Boolean includeZipLib)
 			{
 			var resourcesRaw = libraries == null ? new List<string>() : libraries.ToList();
 			resourcesRaw.Add(mainAssembly);
@@ -229,6 +426,7 @@ namespace Omega.App.nMerge
 			compilerparams.ReferencedAssemblies.Add(@"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.0\System.Xml.Linq.dll");
 			if(compress)
 				compilerparams.ReferencedAssemblies.Add(@"Ionic.BZip2.dll");
+
 #if DEBUG
 			compilerparams.CompilerOptions += " /debug /define:DEBUG";
 #endif
@@ -237,7 +435,8 @@ namespace Omega.App.nMerge
 			
 			if(compress)
 				{
-				compilerparams.EmbeddedResources.Add(@"Ionic.BZip2.dll");
+				if(includeZipLib)
+					compilerparams.EmbeddedResources.Add(@"Ionic.BZip2.dll");
 				compilerparams.CompilerOptions += " /define:COMPRESS";
 				}
 
@@ -288,7 +487,6 @@ namespace Omega.App.nMerge
 				else
 					inStream.CopyTo(outStream);
 				}
-
 			}
 
 		private static void InjectWrapper()
@@ -304,7 +502,7 @@ namespace Omega.App.nMerge
 			var rawSplit = raw.Split(',');
 
 			var l = new List<String>();
-			foreach (var libraryFile in rawSplit)
+			foreach(var libraryFile in rawSplit.Where(libraryFile => !String.IsNullOrWhiteSpace(libraryFile)))
 				{
 				var dir = Path.GetDirectoryName(libraryFile);
 				var searchPattern = Path.GetFileName(libraryFile);
@@ -433,6 +631,12 @@ namespace Omega.App.nMerge
                     If specified all assemblies will be compressed.
                     This has a slight performance cost, but may drastically
                     reduce filesize
+
+/noziplib           Optional.
+                    Requires: /zip
+                    If specified the Ionic.BZip2.dll will not be merged into
+                    the assembly. Use this if the library will be available or
+                    the assembly will be nMerged again with /zip enabled.
 
 /?, /h, /help       Prints this helpful screen
 

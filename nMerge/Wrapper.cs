@@ -97,22 +97,24 @@ class Wrapper
 #endif
 		}
 
-	private static Assembly LoadAssemblyFromStream(Stream _s)
+	private static Assembly LoadAssemblyFromStream(Stream assemblyStream)
 		{
+		if(assemblyStream == null)
+			return null;// throw new ArgumentNullException("assemblyStream");
+
 		byte[] block = null;
 		var buf = new byte[1024];
 		using(var outStream = new MemoryStream())
 			{
 			int bytesRead = 0;
-			while((bytesRead = _s.Read(buf, 0, 1024)) > 0)
+			while((bytesRead = assemblyStream.Read(buf, 0, 1024)) > 0)
 				{
 				outStream.Write(buf, 0, bytesRead);
 				}
 			block = outStream.ToArray();
 			}
 
-		Assembly a2 = Assembly.Load(block);
-		return a2;
+		return Assembly.Load(block);
 		}
 
 #if COMPRESS
