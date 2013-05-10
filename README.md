@@ -28,11 +28,11 @@ Usage
 	                    If specified all assemblies will be compressed.
 	                    This has a slight performance cost, but may drastically
 	                    reduce filesize. Zip-merged assembly will always be > 56k
-  /noziplib           Optional.
-                      Requires: /zip
-                      If specified the Ionic.BZip2.dll will not be merged into
-                      the assembly. Use this if the library will be available or
-                      the assembly will be nMerged again with /zip enabled.
+	/noziplib           Optional.
+	                    Requires: /zip
+	                    If specified the Ionic.BZip2.dll will not be merged into
+	                    the assembly. Use this if the library will be available or
+	                    the assembly will be nMerged again with /zip enabled.
 	
 	/?, /h, /help       Prints this helpful screen
 	
@@ -44,5 +44,6 @@ Caveats
 
 * If merging applications, the output file name must be different from the input assembly.
 * Assembly information and icons are not transferred to the merged assembly, yet.
-* If using compression, an uncompressed version of Ionic.Bzip2.dll(roughly 56k) must be merged into the target. For very small assemblies that can mean a net increase in file size. Merged assembly will always be bigger than 56k.  
+* If using compression (`/zip`), an uncompressed version of Ionic.Bzip2.dll(roughly 56k) must be merged into the target. For very small assemblies that can mean a net increase in file size. Merged assembly will always be bigger than 56k.
+This can be avoided using `/noziplib` if the library can be loaded from elsewhere (subsequent nMerge, GAC, application directory)
  
