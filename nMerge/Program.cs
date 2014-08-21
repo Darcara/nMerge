@@ -17,6 +17,8 @@ using MethodBody = Mono.Cecil.Cil.MethodBody;
 
 namespace Omega.App.nMerge
 	{
+	using System.IO.Compression;
+
 	public class Program
 		{
 		public static void Main(params string[] args)
@@ -34,15 +36,15 @@ namespace Omega.App.nMerge
 			AssemblyDefinition assemblyDef = null;
 
 			var cli = new OptionSet()
-			          	{
-			          		{"h|help|?", v => PrintUsage()},
+									{
+										{"h|help|?", v => PrintUsage()},
 										{"out=", v => outputFile = v},
 										{"in=", v => inputFile = v},
 										{"m=", v => methodRaw = v},
 										{"lib=", v => librariesRaw = v},
 										{"zip", v => compress = true},
 										{"noziplib", v => includeZipLib = false},
-			          	};
+									};
 
 			
 			try
@@ -54,7 +56,7 @@ namespace Omega.App.nMerge
 				if(String.IsNullOrWhiteSpace(inputFile))
 					throw new Exception("in must be set");
 				if(!File.Exists(inputFile))
-					throw new FileNotFoundException("input file does not exist", inputFile);
+					throw new FileNotFoundException("input file does not exist: " + Path.GetFullPath(inputFile), inputFile);
 
 				if(Path.GetExtension(inputFile) == ".dll")
 					{
@@ -109,10 +111,10 @@ namespace Omega.App.nMerge
 						}
 					
 
-					var unusedMethod = FindMethod("MainLibrary.DerivedClass::UnusedMethod", assemblyDef);
-					var voidRef = assemblyDef.MainModule.Import(unusedMethod.ReturnType);
+					//var unusedMethod = FindMethod("MainLibrary.DerivedClass::UnusedMethod", assemblyDef);
+					//var voidRef = assemblyDef.MainModule.Import(unusedMethod.ReturnType);
 					const MethodAttributes attributes = MethodAttributes.Static | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName;
-					var cctor = new MethodDefinition(".cctor", attributes, voidRef);
+					var cctor = new MethodDefinition(".cctor", attributes, ImportType(assemblyDef, typeof(void)));
 
 					List<MethodDefinition> resolveMethod;
 
@@ -120,7 +122,7 @@ namespace Omega.App.nMerge
 						{
 						if(includeZipLib)
 							{
-							assemblyDef.MainModule.Resources.Add(new EmbeddedResource("Ionic.BZip2.dll.bz2", ManifestResourceAttributes.Public, File.ReadAllBytes("Ionic.BZip2.dll")));
+							assemblyDef.MainModule.Resources.Add(new EmbeddedResource("Ionic.BZip2.dll.bz2", ManifestResourceAttributes.Public, File.ReadAllBytes(GetIonicBzipPath())));
 							resolveMethod = CreateResolveMixedMethod(assemblyDef);
 							}
 						else
@@ -129,16 +131,20 @@ namespace Omega.App.nMerge
 					else
 						resolveMethod = CreateResolveMinimalMethod(assemblyDef);
 
+
 					ILProcessor il = cctor.Body.GetILProcessor();
 
 
-					il.Append(il.Create(OpCodes.Call, unusedMethod));
+					//il.Append(il.Create(OpCodes.Call, unusedMethod));
+					il.Emit(OpCodes.Ldstr, "Initializing Assembly Resolver");
+					il.Emit(OpCodes.Call, ImportMethod(assemblyDef, typeof(Console), "WriteLine", typeof(String)));
+
 					il.Append(il.Create(OpCodes.Call, ImportMethod<AppDomain>(assemblyDef, "get_CurrentDomain")));
 					il.Emit(OpCodes.Ldnull);
 					il.Emit(OpCodes.Ldftn, resolveMethod.First(m => m.Name == "OnAssemblyResolve"));
 					il.Emit(OpCodes.Newobj, ImportCtor<ResolveEventHandler>(assemblyDef, typeof(object), typeof(IntPtr)));
 					il.Emit(OpCodes.Callvirt, ImportMethod<AppDomain>(assemblyDef, "add_AssemblyResolve"));
-					il.Append(il.Create(OpCodes.Call, unusedMethod));
+					//il.Append(il.Create(OpCodes.Call, unusedMethod));
 					il.Append(il.Create(OpCodes.Ret));
 
 					
@@ -173,9 +179,30 @@ namespace Omega.App.nMerge
 			Console.WriteLine("All Done!");
 			}
 
+		private static String GetIonicBzipPath()
+			{
+			String zip = "Ionic.BZip2.dll";
+			if(File.Exists(zip))
+				return Path.GetFullPath(zip);
+
+			String loc = Assembly.GetExecutingAssembly().Location;
+			if(!String.IsNullOrEmpty(loc) && File.Exists(Path.Combine(Path.GetDirectoryName(loc), zip)))
+				return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(loc), zip));
+			
+			loc = Assembly.GetEntryAssembly().Location;
+			if(!String.IsNullOrEmpty(loc) && File.Exists(Path.Combine(Path.GetDirectoryName(loc), zip)))
+				return Path.GetFullPath(Path.Combine(Path.GetDirectoryName(loc), zip));
+
+			return null;
+			}
+
 		private static TypeReference ImportType<T>(AssemblyDefinition assemblyDef)
 			{
 			return assemblyDef.MainModule.Import(typeof(T));
+			}
+		private static TypeReference ImportType(AssemblyDefinition assemblyDef, Type t)
+			{
+			return assemblyDef.MainModule.Import(t);
 			}
 		private static MethodReference ImportMethod<T>(AssemblyDefinition assemblyDef, string methodName)
 			{
@@ -413,19 +440,18 @@ namespace Omega.App.nMerge
 			var resourcesLocal = CreateResources("Resources.resources", resourcesRaw, compress);
 			var provider = new CSharpCodeProvider();
 			var compilerparams = new CompilerParameters
-			                     	{
+														{
 															GenerateExecutable = true,
 															GenerateInMemory = false,
-															OutputAssembly = outputFile,
-															
-			                     	};
+															OutputAssembly = outputFile
+														};
 			compilerparams.ReferencedAssemblies.Add(@"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.0\System.dll");
 			compilerparams.ReferencedAssemblies.Add(@"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.0\System.Data.dll");
 			compilerparams.ReferencedAssemblies.Add(@"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.0\System.Core.dll");
 			compilerparams.ReferencedAssemblies.Add(@"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.0\System.Xml.dll");
 			compilerparams.ReferencedAssemblies.Add(@"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.0\System.Xml.Linq.dll");
 			if(compress)
-				compilerparams.ReferencedAssemblies.Add(@"Ionic.BZip2.dll");
+				compilerparams.ReferencedAssemblies.Add(GetIonicBzipPath());
 
 #if DEBUG
 			compilerparams.CompilerOptions += " /debug /define:DEBUG";
@@ -436,7 +462,7 @@ namespace Omega.App.nMerge
 			if(compress)
 				{
 				if(includeZipLib)
-					compilerparams.EmbeddedResources.Add(@"Ionic.BZip2.dll");
+					compilerparams.EmbeddedResources.Add(GetIonicBzipPath());
 				compilerparams.CompilerOptions += " /define:COMPRESS";
 				}
 
@@ -487,6 +513,20 @@ namespace Omega.App.nMerge
 				else
 					inStream.CopyTo(outStream);
 				}
+
+			using (FileStream inStream = File.OpenRead(inFile))
+			using (FileStream outStream = File.Create(outFile + ".zip"))
+				{
+					using (var compressionStream = new GZipStream(outStream, CompressionMode.Compress))
+						inStream.CopyTo(compressionStream);
+				}
+			using (FileStream inStream = File.OpenRead(inFile))
+			using (FileStream outStream = File.Create(outFile + ".deflate"))
+				{
+				using (var compressionStream = new DeflateStream(outStream, CompressionMode.Compress))
+					inStream.CopyTo(compressionStream);
+				}
+
 			}
 
 		private static void InjectWrapper()
@@ -511,7 +551,7 @@ namespace Omega.App.nMerge
 				foreach (var file in files.Where(file => file != mainAssembly && Path.GetFileName(file) != "Ionic.BZip2.dll"))
 					{
 					if(!File.Exists(file))
-						throw new FileNotFoundException("Library not found", file);
+						throw new FileNotFoundException("Library not found: " + file, file);
 
 					Console.WriteLine("Found library " + file);
 					l.Add(file);

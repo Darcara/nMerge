@@ -33,7 +33,7 @@ namespace nMergeTests.IntegrationTests
 			Debug.WriteLine(String.Format("----- Filesize: {0} -----", (new FileInfo(GetTestMergeResultFileName()).Length)));
 			}
 
-		//[TestFixtureSetUp]
+		[TestFixtureSetUp]
 		public void Cleanup()
 			{
 			if(Directory.Exists(Setup.TempDir))
@@ -80,7 +80,7 @@ namespace nMergeTests.IntegrationTests
 		[Test]
 		public void AppFullCompressed()
 			{
-			TestIntegration(@"/m=Application.Program::Main", @"/lib=.\MainLibrary.dll,.\RequiredLibrary.dll,SilentRequiredLibrary.dll", @"/zip");
+			TestIntegration(@"/m=Application.Program::Main", @"/lib=.\MainLibrary.dll,.\RequiredLibrary.dll,SilentRequiredLibrary.dll,Mono.Cecil.dll", @"/zip");
 			Setup.TestMergeResult("123", "HelloWorld");
 			}
 		[Test]

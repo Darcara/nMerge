@@ -37,7 +37,7 @@ namespace nMergeTests.IntegrationTests
 			return GetTestMergeResultFileName();
 			}
 
-		//[TestFixtureSetUp]
+		[TestFixtureSetUp]
 		public void Cleanup()
 			{
 			if(Directory.Exists(Setup.TempDir))
