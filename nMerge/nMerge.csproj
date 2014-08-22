@@ -67,7 +67,9 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="MinimalWrapper.cs" />
+    <Compile Include="CommandLine.cs" />
+    <Compile Include="Log.cs" />
+    <Compile Include="MergeType.cs" />
     <Compile Include="Options\Options.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

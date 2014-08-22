@@ -23,84 +23,42 @@ namespace Omega.App.nMerge
 		{
 		public static void Main(params string[] args)
 			{
-			String outputFile = null;
-			String inputFile = null;
-			String methodRaw = null;
-			String librariesRaw = null;
-			Boolean compress = false;
-			Boolean includeZipLib = true;
+			CommandLine cl;
+			try
+				{
+				cl = new CommandLine(args);
+				}
+			catch (Exception e)
+				{
+				Log.Error("Invalid Command line parameters: " + e.Message);
+				Log.Error(String.Empty);
+				Log.Error(CommandLine.Usage);
+				return;
+				}
 
-			List<String> libraries = null;
+			Log.LogLevel = cl.LogLevel;
 			MethodReference method = null;
-			Boolean isExecuteable = true;
-			AssemblyDefinition assemblyDef = null;
-
-			var cli = new OptionSet()
-									{
-										{"h|help|?", v => PrintUsage()},
-										{"out=", v => outputFile = v},
-										{"in=", v => inputFile = v},
-										{"m=", v => methodRaw = v},
-										{"lib=", v => librariesRaw = v},
-										{"zip", v => compress = true},
-										{"noziplib", v => includeZipLib = false},
-									};
-
+			AssemblyDefinition assemblyDef = ReadAssembly(cl.InputFile);
 			
-			try
-				{
-				cli.Parse(args);
-
-				if(String.IsNullOrWhiteSpace(outputFile))
-					throw new Exception("out must be set");
-				if(String.IsNullOrWhiteSpace(inputFile))
-					throw new Exception("in must be set");
-				if(!File.Exists(inputFile))
-					throw new FileNotFoundException("input file does not exist: " + Path.GetFullPath(inputFile), inputFile);
-
-				if(Path.GetExtension(inputFile) == ".dll")
-					{
-					isExecuteable = false;
-					}
-				else if(Path.GetExtension(inputFile) == ".exe")
-					isExecuteable = true;
-				else
-					throw new Exception("Unable to recognize type of input file. Must be 'dll' or 'exe'");
-
-				var applicationPath =  Path.GetDirectoryName(inputFile);
-				if(librariesRaw == null && applicationPath != null)
-					librariesRaw = Path.Combine(applicationPath, "*.dll");
-				
-				libraries = ParseLibraries(librariesRaw, inputFile);
-				assemblyDef = ReadAssembly(inputFile);
-				}
-			catch(Exception e)
-				{
-				Console.WriteLine("Invalid Command line parameters: " + e.Message);
-				Console.WriteLine();
-				PrintUsage();
-				Environment.Exit(2);
-				}
-
-			Console.WriteLine("Preparations complete.");
+			Log.Info("Preparations complete.");
 
 			try
 				{
-				if(isExecuteable)
+				if(cl.MergeType == MergeType.Application)
 					{
-					method = GetCalleeMethod(methodRaw, assemblyDef);
+					method = GetCalleeMethod(cl.MethodRaw, assemblyDef);
 
 					if(method == null)
-						throw new Exception("Entry method could not be determined for " + (String.IsNullOrEmpty(methodRaw) ? "<DefaultEntryPoint>" : methodRaw));
+						throw new Exception("Entry method could not be determined for " + (String.IsNullOrEmpty(cl.MethodRaw) ? "<DefaultEntryPoint>" : cl.MethodRaw));
 
-					BuildWrapper(outputFile, inputFile, libraries, method.DeclaringType.FullName + "," + assemblyDef.FullName, method.Name, compress, includeZipLib);
+					BuildWrapper(cl.OutputFile, cl.InputFile, cl.Libraries, method.DeclaringType.FullName + "," + assemblyDef.FullName, method.Name, cl.Compress);
 					InjectWrapper();
 					}
 				else
 					{
-					foreach (var library in libraries)
+					foreach (var library in cl.Libraries)
 						{
-						if(compress)
+						if (cl.Compress)
 							{
 							String compressedLib = Path.GetFileName(library) + ".bz2";
 							CopyFile(library, compressedLib, true);
@@ -116,20 +74,7 @@ namespace Omega.App.nMerge
 					const MethodAttributes attributes = MethodAttributes.Static | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName;
 					var cctor = new MethodDefinition(".cctor", attributes, ImportType(assemblyDef, typeof(void)));
 
-					List<MethodDefinition> resolveMethod;
-
-					if(compress)
-						{
-						if(includeZipLib)
-							{
-							assemblyDef.MainModule.Resources.Add(new EmbeddedResource("Ionic.BZip2.dll.bz2", ManifestResourceAttributes.Public, File.ReadAllBytes(GetIonicBzipPath())));
-							resolveMethod = CreateResolveMixedMethod(assemblyDef);
-							}
-						else
-							resolveMethod = CreateResolveCompressedMethod(assemblyDef);
-						}
-					else
-						resolveMethod = CreateResolveMinimalMethod(assemblyDef);
+					List<MethodDefinition> resolveMethod = cl.Compress ? CreateResolveCompressedMethod(assemblyDef) : CreateResolveMinimalMethod(assemblyDef);
 
 
 					ILProcessor il = cctor.Body.GetILProcessor();
@@ -166,17 +111,17 @@ namespace Omega.App.nMerge
 					var moduleType = assemblyDef.MainModule.Types.Single(x => x.Name == "<Module>");
 					foreach(var m in resolveMethod)
 					moduleType.Methods.Add(m);
-					assemblyDef.Write(outputFile);
+					assemblyDef.Write(cl.OutputFile);
 					}
 
 				}
 			catch(Exception e)
 				{
-				Console.WriteLine("Failed to merge assemblies: " + e);
+				Log.Error("Failed to merge assemblies: " + e);
 				Environment.Exit(3);
 				}
 
-			Console.WriteLine("All Done!");
+			Log.Info("All Done!");
 			}
 
 		private static String GetIonicBzipPath()
@@ -433,7 +378,7 @@ namespace Omega.App.nMerge
 			return new List<MethodDefinition>() { method, loadAssemblyFromCompressedStream, loadAssemblyFromStream };
 			}
 
-		private static void BuildWrapper(String outputFile, String mainAssembly, List<String> libraries, String mainClassTypeName, String mainMethod, Boolean compress, Boolean includeZipLib)
+		private static void BuildWrapper(String outputFile, String mainAssembly, List<String> libraries, String mainClassTypeName, String mainMethod, Boolean compress)
 			{
 			var resourcesRaw = libraries == null ? new List<string>() : libraries.ToList();
 			resourcesRaw.Add(mainAssembly);
@@ -461,8 +406,6 @@ namespace Omega.App.nMerge
 			
 			if(compress)
 				{
-				if(includeZipLib)
-					compilerparams.EmbeddedResources.Add(GetIonicBzipPath());
 				compilerparams.CompilerOptions += " /define:COMPRESS";
 				}
 
@@ -533,35 +476,6 @@ namespace Omega.App.nMerge
 			{
 			
 			}
-
-		private static List<String> ParseLibraries(String raw, String mainAssembly)
-			{
-			if(String.IsNullOrWhiteSpace(raw))
-				return null;
-
-			var rawSplit = raw.Split(',');
-
-			var l = new List<String>();
-			foreach(var libraryFile in rawSplit.Where(libraryFile => !String.IsNullOrWhiteSpace(libraryFile)))
-				{
-				var dir = Path.GetDirectoryName(libraryFile);
-				var searchPattern = Path.GetFileName(libraryFile);
-				var files = Directory.GetFiles(String.IsNullOrWhiteSpace(dir) ? "./" : dir, searchPattern ?? "*.dll");
-
-				foreach (var file in files.Where(file => file != mainAssembly && Path.GetFileName(file) != "Ionic.BZip2.dll"))
-					{
-					if(!File.Exists(file))
-						throw new FileNotFoundException("Library not found: " + file, file);
-
-					Console.WriteLine("Found library " + file);
-					l.Add(file);
-					}
-
-				if(files.Length == 0)
-					Console.WriteLine("No files found for: " + libraryFile);
-				}
-			return l;
-			} 
 
 		private static MethodReference GetCalleeMethod(String methodRaw, AssemblyDefinition assemblyDef)
 			{
@@ -645,44 +559,6 @@ namespace Omega.App.nMerge
 				}
 			return AssemblyDefinition.ReadAssembly(assemblyFile, readParams);
 			}
-
-		private static void PrintUsage()
-			{
-			
-			Console.WriteLine(@"nmerge.exe /out=<outputFile> /in=<application> [/lib=<library>,<library>] [/zip] [/m=<method>]
-
-/out=<outputFile>   The output file
-
-/in=<application>   The application assembly
-
-/m=<method>         Optional.
-                    The fully qualified method name
-                    Method must be public static void(String[] args)
-                    Defaults to the entry point for executeables
-                    e.g: Some.Namespace.Program::Main
-
-/lib=<library>      Optional.
-                    A ','-separated list of assemblies to include
-                    Wildcards are permitted
-                    If not specified, all *.dll files in the same directory
-                    as the application are assumed
-
-/zip                Optional.
-                    If specified all assemblies will be compressed.
-                    This has a slight performance cost, but may drastically
-                    reduce filesize
-
-/noziplib           Optional.
-                    Requires: /zip
-                    If specified the Ionic.BZip2.dll will not be merged into
-                    the assembly. Use this if the library will be available or
-                    the assembly will be nMerged again with /zip enabled.
-
-/?, /h, /help       Prints this helpful screen
-
-Additional information on this website:
-	https://github.com/Darcara/nMerge");
-			Environment.Exit(1);
-			}
+		
 		}
 	}
