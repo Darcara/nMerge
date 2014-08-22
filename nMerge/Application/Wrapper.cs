@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.IO.Compression;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
@@ -64,9 +65,6 @@ class Wrapper
 			}
 		finally
 			{
-#if DEBUG
-			//Console.ReadKey(false);
-#endif
 			}
 		}
 
@@ -77,9 +75,6 @@ class Wrapper
 
 		Assembly executingAssembly = Assembly.GetExecutingAssembly();
 		
-		if(assName.Name == "Ionic.BZip2")
-			return LoadAssemblyFromStream(executingAssembly.GetManifestResourceStream(assName.Name + ".dll"));
-
 		Stream _s = null;
 		_s = executingAssembly.GetManifestResourceStream(assName.Name + ".dll" + ".bz2");
 		if(_s == null)
@@ -121,7 +116,7 @@ class Wrapper
 	private static Assembly LoadAssemblyFromCompressedStream(Stream _s)
 		{
 		byte[] block = null;
-		using(var inStream = new Ionic.BZip2.BZip2InputStream(_s))
+		using(var inStream = new DeflateStream(_s, CompressionMode.Decompress))
 			{
 			var buf = new byte[1024];
 			using(var outStream = new MemoryStream())

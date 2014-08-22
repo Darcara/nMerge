@@ -25,6 +25,7 @@ namespace nMergeTests.IntegrationTests
 			arguments.AddRange(args);
 			arguments.Add(@"/in=./" + Setup.ApplicationName);
 			arguments.Add("/out=" + GetTestMergeResultFileName());
+			arguments.Add("/vv");
 
 			Program.Main(arguments.ToArray());
 			Assert.IsTrue(File.Exists(GetTestMergeResultFileName()), String.Format((string) "Merging failed: Assembly '{0}' not created", (object) GetTestMergeResultFileName()));

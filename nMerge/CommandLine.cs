@@ -34,8 +34,12 @@ namespace Omega.App.nMerge
 										{"in=", v => InputFile = v},
 										{"m=", v => MethodRaw = v},
 										{"lib=", v => LibrariesRaw = v},
-										{"zip", v => Compress = true},
-										{"v", v => LogLevel++},
+										{"zip|compress", v => Compress = true},
+										{"v", v => LogLevel++ },
+										{"vv", v => LogLevel += 2 },
+										{"vvv", v => LogLevel += 3 },
+										{"vvvv", v => LogLevel += 4 },
+										{"s|silent", v => LogLevel = Log.LevelNone}
 									};
 
 
@@ -113,7 +117,7 @@ namespace Omega.App.nMerge
                     The fully qualified method name
                     Method must be public static void(String[] args)
                     Defaults to the entry point for executeable
-                    e.g: Some.Namespace.Class::Method
+                    e.g: Some.Namespace.Program::Main
 
 /lib=<library>      Optional.
                     A ',' (comma) - separated list of assemblies to include
@@ -124,7 +128,7 @@ namespace Omega.App.nMerge
 /zip                Optional.
                     If specified all assemblies will be compressed.
                     This has a slight performance cost, but may drastically
-                    reduce filesize
+                    reduce filesize. Uses the .Net deflate algorithm.
 
 /?, /h, /help       Prints this helpful screen
 

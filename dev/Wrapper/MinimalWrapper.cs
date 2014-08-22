@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.IO.Compression;
 using System.Reflection;
 
 // ReSharper disable CheckNamespace
@@ -60,6 +61,18 @@ public class MinimalWrapper
 		var outStream = new MemoryStream();
 		int bytesRead;
 		while((bytesRead = inStream.Read(buf, 0, 1024)) > 0)
+			outStream.Write(buf, 0, bytesRead);
+		return Assembly.Load(outStream.ToArray());
+		}
+	private static Assembly DeflatedMinmalResolve(object sender, ResolveEventArgs args)
+		{
+		var assemblyName = (new AssemblyName(args.Name)).Name + ".dll.bz2";
+		Console.WriteLine("Resolving: " + assemblyName);
+		var inStream = new DeflateStream(Assembly.GetExecutingAssembly().GetManifestResourceStream(assemblyName), CompressionMode.Decompress);
+		var buf = new byte[1024];
+		var outStream = new MemoryStream();
+		int bytesRead;
+		while ((bytesRead = inStream.Read(buf, 0, 1024)) > 0)
 			outStream.Write(buf, 0, bytesRead);
 		return Assembly.Load(outStream.ToArray());
 		}

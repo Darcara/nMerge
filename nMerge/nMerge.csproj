@@ -49,9 +49,6 @@
     <DebugSymbols>true</DebugSymbols>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Ionic.BZip2">
-      <HintPath>lib\Ionic.BZip2.dll</HintPath>
-    </Reference>
     <Reference Include="Mono.Cecil">
       <HintPath>lib\Mono.Cecil.dll</HintPath>
     </Reference>
@@ -67,8 +64,11 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Application\ApplicationMerger.cs" />
     <Compile Include="CommandLine.cs" />
+    <Compile Include="Library\LibraryMerger.cs" />
     <Compile Include="Log.cs" />
+    <Compile Include="Merger.cs" />
     <Compile Include="MergeType.cs" />
     <Compile Include="Options\Options.cs" />
     <Compile Include="Program.cs" />
@@ -81,12 +81,14 @@
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>PublicResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+      <SubType>Designer</SubType>
     </EmbeddedResource>
-    <None Include="Wrapper.cs" />
+    <None Include="Application\Wrapper.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.

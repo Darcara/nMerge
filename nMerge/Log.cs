@@ -14,7 +14,7 @@
 
 		private static void Write(Int32 lvl, TextWriter stream, String msg)
 			{
-			if(lvl < LogLevel)
+			if(lvl > LogLevel)
 				return;
 			
 			stream.WriteLine(msg);

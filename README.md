@@ -1,7 +1,7 @@
 nMerge
 ======
 
-A small command line tool to merge and compress C# assemblies
+A minimal command line tool to merge and compress C# assemblies.
 
 Usage
 =====
@@ -15,7 +15,7 @@ Usage
 	/m=<method>         Optional.
 	                    The fully qualified method name
 	                    Method must be public static void(String[] args)
-	                    Defaults to the entry point for executeables
+	                    Defaults to the entry point for executeable
 	                    e.g: Some.Namespace.Program::Main
 	
 	/lib=<library>      Optional.
@@ -27,16 +27,11 @@ Usage
 	/zip                Optional.
 	                    If specified all assemblies will be compressed.
 	                    This has a slight performance cost, but may drastically
-	                    reduce filesize. Zip-merged assembly will always be > 56k
-	/noziplib           Optional.
-	                    Requires: /zip
-	                    If specified the Ionic.BZip2.dll will not be merged into
-	                    the assembly. Use this if the library will be available or
-	                    the assembly will be nMerged again with /zip enabled.
+	                    reduce filesize. Uses the .Net deflate algorithm.
 	
 	/?, /h, /help       Prints this helpful screen
 	
-	Additional information on this website:
+	Additional information on the github repository:
 		https://github.com/Darcara/nMerge
   
 Caveats
@@ -44,6 +39,4 @@ Caveats
 
 * If merging applications, the output file name must be different from the input assembly.
 * Assembly information and icons are not transferred to the merged assembly, yet.
-* If using compression (`/zip`), an uncompressed version of Ionic.Bzip2.dll(roughly 56k) must be merged into the target. For very small assemblies that can mean a net increase in file size. Merged assembly will always be bigger than 56k.
-This can be avoided using `/noziplib` if the library can be loaded from elsewhere (subsequent nMerge, GAC, application directory)
  
